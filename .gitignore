@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+.venv/
+venv/
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+# Data and models (you probably don't want to commit large files)
+*.pth
+*.pkl
+data/
+checkpoints/
+
+# OS
+.DS_Store
