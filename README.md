@@ -182,16 +182,6 @@ for epoch in range(10):
 - Parameters: ~13-15M (larger vocab)
 - Expected accuracy: 50-60% (BPE token prediction)
 
-## Citation
-
-```bibtex
-@misc{rsm2025,
-  title={Rolling State Memory Transformer Implementation},
-  author={Daria Strait, Peter Vail Driscoll},
-  year={2025},
-  note={Neural Network Deep Learning Course Project}
-}
-```
 
 ## References
 
