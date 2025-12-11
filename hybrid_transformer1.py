@@ -149,13 +149,6 @@ class CausalSelfAttention(nn.Module):
         """
         batch_size, seq_len, _ = x.shape
         
-        # Create or retrieve causal mask
-        if self.causal_mask is None or self.causal_mask.shape[0] < seq_len:
-            mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool()
-            self.causal_mask = mask.to(x.device)
-        else:
-            mask = self.causal_mask[:seq_len, :seq_len]
-        
         # Compute Q, K, V
         qkv = self.qkv(x)
         qkv = qkv.reshape(batch_size, seq_len, 3, self.num_heads, self.head_dim)
@@ -164,6 +157,9 @@ class CausalSelfAttention(nn.Module):
         
         # Scaled dot-product attention
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        
+        # Create causal mask on the same device as scores (GPU or CPU)
+        mask = torch.triu(torch.ones(seq_len, seq_len, device=scores.device, dtype=torch.bool), diagonal=1)
         scores = scores.masked_fill(mask, float('-inf'))
         attention = F.softmax(scores, dim=-1)
         attention = self.dropout(attention)
@@ -478,7 +474,8 @@ def train_rsm_epoch(
     device: torch.device,
     sync_cadence: int = 4,
     max_grad_norm: float = 1.0,
-    reset_memory_every: Optional[int] = None
+    reset_memory_every: Optional[int] = None,
+    batch_size: Optional[int] = None
 ) -> Dict[str, float]:
     """
     Train RSM for one epoch with truncated BPTT.
@@ -492,6 +489,7 @@ def train_rsm_epoch(
         sync_cadence: Perform global sync every K chunks
         max_grad_norm: Gradient clipping threshold
         reset_memory_every: Reset memory every N chunks (None = never)
+        batch_size: Expected batch size (None = infer from first batch)
     
     Returns:
         metrics: Dictionary with 'loss', 'accuracy', 'num_chunks'
@@ -500,9 +498,10 @@ def train_rsm_epoch(
     if global_sync is not None:
         global_sync.train()
     
-    # Initialize memory
-    batch_size = 1
-    memory = model.memory_init.expand(batch_size, -1, -1).detach()
+    # Initialize memory if batch_size is provided, otherwise defer to first batch
+    memory = None
+    if batch_size is not None:
+        memory = model.memory_init.expand(batch_size, -1, -1).detach()
     
     total_loss = 0.0
     total_correct = 0
@@ -525,9 +524,20 @@ def train_rsm_epoch(
         x = x.to(device)
         y = y.to(device)
         
-        # Optional memory reset
+        # Get actual batch size from data
+        current_batch_size = x.size(0)
+        
+        # Initialize memory on first batch if not already initialized
+        if memory is None:
+            memory = model.memory_init.expand(current_batch_size, -1, -1).detach()
+        
+        # Handle batch size changes (e.g., last batch might be smaller)
+        if memory.size(0) != current_batch_size:
+            memory = model.memory_init.expand(current_batch_size, -1, -1).detach()
+        
+        # Reset memory if requested
         if reset_memory_every and chunk_idx % reset_memory_every == 0 and chunk_idx > 0:
-            memory = model.memory_init.expand(batch_size, -1, -1).detach()
+            memory = model.memory_init.expand(current_batch_size, -1, -1).detach()
         
         # Forward pass
         logits, new_memory = model(x, memory)
