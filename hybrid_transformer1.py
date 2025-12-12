@@ -224,15 +224,16 @@ class GatedSSM(nn.Module):
     
     Where:
         - G: Gate (what to update)
-        - A: Memory recurrence matrix
+        - A: Memory recurrence matrix (initialized near identity with slight decay)
         - B: Input projection matrix
         - U_t: Update signal from current tokens
     """
     
-    def __init__(self, hidden_size: int, n_slots: int):
+    def __init__(self, hidden_size: int, n_slots: int, use_attention_pooling: bool = False):
         super().__init__()
         self.hidden_size = hidden_size
         self.n_slots = n_slots
+        self.use_attention_pooling = use_attention_pooling
         
         # Gate network: controls update magnitude
         self.gate_net = nn.Sequential(
@@ -243,6 +244,15 @@ class GatedSSM(nn.Module):
         # SSM parameters
         self.A = nn.Linear(hidden_size, hidden_size, bias=False)  # Memory recurrence
         self.B = nn.Linear(hidden_size, hidden_size, bias=False)  # Input projection
+        
+        # Initialize A near identity with slight decay for stability
+        nn.init.eye_(self.A.weight)
+        self.A.weight.data *= 0.9  # Slight decay factor
+        
+        # Optional: Attention-based salience pooling instead of mean pooling
+        if use_attention_pooling:
+            self.salience_query = nn.Linear(hidden_size, hidden_size)
+            self.salience_key = nn.Linear(hidden_size, hidden_size)
     
     def forward(self, h: torch.Tensor, memory: torch.Tensor) -> torch.Tensor:
         """
@@ -253,15 +263,24 @@ class GatedSSM(nn.Module):
         Returns:
             new_memory: Updated memory (batch, n_slots, hidden_size)
         """
-        # Aggregate sequence information (mean pooling)
-        summary = h.mean(dim=1, keepdim=True)  # (batch, 1, hidden_size)
-        summary = summary.expand(-1, self.n_slots, -1)  # (batch, n_slots, hidden_size)
+        # Aggregate sequence information
+        if self.use_attention_pooling:
+            # Attention-based salience pooling (top-k weighted)
+            q = self.salience_query(memory)  # (batch, n_slots, hidden_size)
+            k = self.salience_key(h)  # (batch, seq_len, hidden_size)
+            scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.hidden_size)
+            attn_weights = F.softmax(scores, dim=-1)  # (batch, n_slots, seq_len)
+            summary = torch.matmul(attn_weights, h)  # (batch, n_slots, hidden_size)
+        else:
+            # Mean pooling (lightweight default)
+            summary = h.mean(dim=1, keepdim=True)  # (batch, 1, hidden_size)
+            summary = summary.expand(-1, self.n_slots, -1)  # (batch, n_slots, hidden_size)
         
         # Compute gate and update
         gate = self.gate_net(summary)
         update = torch.tanh(self.A(memory) + self.B(summary))
         
-        # Gated update
+        # Gated update: M_{t+1} = (1 - G) ⊙ M_t + G ⊙ tanh(A*M_t + B*U_t)
         new_memory = (1 - gate) * memory + gate * update
         
         return new_memory
@@ -329,7 +348,8 @@ class HybridTransformerBlock(nn.Module):
     """
     
     def __init__(self, hidden_size: int, n_slots: int = 32, 
-                 num_heads: int = 4, dropout: float = 0.1):
+                 num_heads: int = 4, dropout: float = 0.1, 
+                 use_attention_pooling: bool = False):
         super().__init__()
         
         # Layer norms (pre-norm architecture)
@@ -342,7 +362,7 @@ class HybridTransformerBlock(nn.Module):
         
         # Memory operations
         self.memory_read = CrossAttention(hidden_size, n_slots, dropout)
-        self.memory_write = GatedSSM(hidden_size, n_slots)
+        self.memory_write = GatedSSM(hidden_size, n_slots, use_attention_pooling)
         
         # Feedforward
         self.mlp = MLP(hidden_size, expansion_ratio=4, dropout=dropout)
@@ -387,7 +407,8 @@ class HybridTransformer(nn.Module):
     
     def __init__(self, vocab_size: int, hidden_size: int, num_layers: int,
                  n_slots: int = 32, window_size: int = 256, 
-                 num_heads: int = 4, dropout: float = 0.1):
+                 num_heads: int = 4, dropout: float = 0.1,
+                 use_attention_pooling: bool = False):
         super().__init__()
         
         self.vocab_size = vocab_size
@@ -406,7 +427,7 @@ class HybridTransformer(nn.Module):
         
         # Transformer blocks
         self.blocks = nn.ModuleList([
-            HybridTransformerBlock(hidden_size, n_slots, num_heads, dropout)
+            HybridTransformerBlock(hidden_size, n_slots, num_heads, dropout, use_attention_pooling)
             for _ in range(num_layers)
         ])
         
@@ -806,6 +827,7 @@ def create_rsm_model(
     chunk_size: int = 256,
     dropout: float = 0.1,
     use_global_sync: bool = True,
+    use_attention_pooling: bool = False,
     device: torch.device = torch.device('cpu')
 ) -> Tuple[HybridTransformer, Optional[GlobalSyncLayer], Dict[str, Any]]:
     """
@@ -820,6 +842,7 @@ def create_rsm_model(
         chunk_size: Context window size
         dropout: Dropout probability
         use_global_sync: Whether to create GlobalSyncLayer
+        use_attention_pooling: Use attention-based salience pooling in GatedSSM
         device: Device to create model on
     
     Returns:
@@ -835,7 +858,8 @@ def create_rsm_model(
         'num_memory_slots': num_memory_slots,
         'chunk_size': chunk_size,
         'dropout': dropout,
-        'use_global_sync': use_global_sync
+        'use_global_sync': use_global_sync,
+        'use_attention_pooling': use_attention_pooling
     }
     
     model = HybridTransformer(
@@ -845,7 +869,8 @@ def create_rsm_model(
         n_slots=num_memory_slots,
         window_size=chunk_size,
         num_heads=num_heads,
-        dropout=dropout
+        dropout=dropout,
+        use_attention_pooling=use_attention_pooling
     ).to(device)
     
     global_sync = None
