@@ -1,4 +1,4 @@
-# RSM Transformer - Final Project
+# RSM Transformer 
 
 **Deep Learning Fall 2025**  
 Daria Strait, Peter Vail Driscoll
