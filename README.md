@@ -1,6 +1,9 @@
 # Rolling State Memory (RSM) Transformer
 
-A modular implementation of a Hybrid Transformer with Rolling State Memory for long-context language modeling.
+Implementation of a Hybrid Transformer with Rolling State Memory for long-context language modeling.
+
+**Course Project**: Deep Learning (Fall 2025)  
+**Authors**: Daria Strait, Peter Vail Driscoll
 
 ## Overview
 
@@ -10,32 +13,33 @@ This project implements an RSM architecture that combines:
 - **Global synchronization** between tokens and memory
 - **Efficient training** with truncated BPTT
 
-**Key Features:**
-- 🎯 Modular, clean architecture with 7 organized sections
-- 📚 Multiple dataset support (TinyStories, Tiny Shakespeare, WikiText-103)
-- 🔤 Flexible tokenization (BPE, SentencePiece, character-level)
-- 💾 Checkpoint management and experiment tracking
-- 🎨 Built-in visualization and text generation
+### Key Features
+- Modular architecture organized in 7 sections
+- Multiple dataset support (TinyStories, Tiny Shakespeare, WikiText-103)
+- Flexible tokenization (BPE, SentencePiece, character-level)
+- Checkpoint management and experiment tracking
+- Comprehensive evaluation suite (proposal sections 8 & 9)
 
 ## Quick Start
 
-```python
-from hybrid_transformer1 import create_rsm_model, train_rsm_epoch, generate_with_rsm
+### Training a Model
 
-# Create model (easy factory function)
+```python
+from hybrid_transformer1 import create_rsm_model, train_rsm_epoch
+
+# Create model
 model, global_sync, config = create_rsm_model(
-    vocab_size=50257,      # GPT-2 tokenizer
-    hidden_size=256,       # Model dimension
-    num_layers=8,          # Transformer layers
-    num_heads=4,           # Attention heads
-    num_memory_slots=32,   # External memory size
-    chunk_size=512,        # Context window
-    dropout=0.1,
+    vocab_size=50257,
+    hidden_size=256,
+    num_layers=8,
+    num_heads=4,
+    num_memory_slots=32,
+    chunk_size=512,
     use_global_sync=True,
     device='cuda'
 )
 
-# Train for one epoch
+# Train
 metrics = train_rsm_epoch(
     model=model,
     global_sync=global_sync,
@@ -43,16 +47,25 @@ metrics = train_rsm_epoch(
     optimizer=optimizer,
     device='cuda'
 )
-
-# Generate text
-generated_tokens = generate_with_rsm(
-    model=model,
-    prompt_tokens=[1, 2, 3],
-    max_new_tokens=100,
-    temperature=0.8,
-    top_k=50
-)
 ```
+
+### Running Evaluation
+
+```python
+from rsm_evaluation import evaluate_retrieval_at_distance, evaluate_cot_depth
+
+# Test retrieval at different distances
+retrieval_results = evaluate_retrieval_at_distance(
+    model,
+    distances=[128, 256, 512, 1024, 2048],
+    device='cuda'
+)
+
+# Test chain-of-thought reasoning
+cot_results = evaluate_cot_depth(model, max_depth=10, device='cuda')
+```
+
+See `run_evaluation.ipynb` for complete evaluation examples.
 
 ## Architecture Components
 
@@ -114,28 +127,66 @@ Complete transformer architecture:
 
 ```
 project/
-├── hybrid_transformer1.py     # Main RSM implementation (~900 lines)
-│   ├── Section 1: NNDL Core
-│   ├── Section 2: Memory Components
-│   ├── Section 3: Architecture
-│   ├── Section 4: Training
-│   ├── Section 5: Generation
-│   ├── Section 6: Dataset
-│   └── Section 7: Helpers
+├── hybrid_transformer1.py        # Main RSM architecture (~940 lines)
+│   ├── Section 1: NNDL Core (attention, MLP, etc.)
+│   ├── Section 2: Memory Components (CrossAttention, GatedSSM, GlobalSync)
+│   ├── Section 3: Architecture (HybridTransformerBlock, HybridTransformer)
+│   ├── Section 4: Training Utilities
+│   ├── Section 5: Generation Utilities
+│   ├── Section 6: Dataset Utilities
+│   └── Section 7: Helper Functions
 │
-├── test_rsm1.ipynb            # Experimental notebook
+├── rsm_evaluation.py             # Evaluation functions (NEW!)
+│   ├── Retrieval at distance tests
+│   ├── Chain-of-thought depth tests
+│   ├── Ablation study functions
+│   └── Memory telemetry analysis
+│
+├── run_evaluation.ipynb          # Evaluation experiments (NEW!)
+│   ├── Run all evaluation metrics
+│   ├── Generate plots and visualizations
+│   └── Save results to JSON
+│
+├── test_rsmShakespeare.ipynb     # Training experiments
 │   ├── Multiple dataset options
 │   ├── Complete training pipeline
-│   ├── Visualization & evaluation
 │   └── Text generation examples
 │
-├── hw2_code_ds4286.ipynb      # Original NN assignment
-└── README.md                  # This file
+├── EVALUATION_GUIDE.md           # Quick reference for evaluation code
+└── README.md                     # This file
 ```
+
+### Code Organization
+
+- **Implementation code** → `.py` files (`hybrid_transformer1.py`, `rsm_evaluation.py`)
+- **Experiments & plots** → `.ipynb` files (`run_evaluation.ipynb`, `test_rsmShakespeare.ipynb`)
+- **This keeps notebooks clean** - just experiments, visualizations, and analysis
+
+## Evaluation (Proposal Sections 8 & 9)
+
+We implemented comprehensive evaluation metrics as specified in our proposal:
+
+### 1. Retrieval at Distance
+Tests exact-match recall for facts at varying distances (128-2048 tokens).
+
+### 2. Chain-of-Thought Depth
+Multi-step reasoning tasks to test how many steps the model can handle.
+
+### 3. Ablation Studies
+- Remove global sync → expect drops at multiples of K
+- Freeze SSM writes → degradation on long-horizon tasks
+- Vary m and chunk size → capacity vs cost curves
+
+### 4. Memory Telemetry
+- Linear decodability of slot contents
+- Slot-level retention half-lives
+- Cosine similarity tracking over time
+
+All evaluation code is in `rsm_evaluation.py` with experiments in `run_evaluation.ipynb`.
 
 ## Training Example
 
-See `test_rsm1.ipynb` for complete examples. Basic training loop:
+See `test_rsmShakespeare.ipynb` for complete examples. Basic training loop:
 
 ```python
 import torch
@@ -160,28 +211,49 @@ model, global_sync, config = create_rsm_model(
     num_heads=4,
     num_memory_slots=32,
     chunk_size=512,
-    device='cuda'
-)
+## Implementation Notes (Proposal Section 9)
 
-# Train
-optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
-for epoch in range(10):
-    metrics = train_rsm_epoch(model, global_sync, loader, optimizer, device='cuda')
-    print(f"Epoch {epoch+1}: Loss={metrics['loss']:.4f}, Acc={metrics['accuracy']*100:.2f}%")
-```
+✅ **Short KV cache** - Using local causal attention only, no growing cache  
+✅ **Salience pooling** - Both mean pooling and attention-based options  
+✅ **A matrix initialization** - Near-identity with 0.9 decay for stability  
+⚠️ **Shared memory per layer** - Future work
 
-## Performance
+## Recent Updates
 
-**Tiny Shakespeare (10 epochs, 256 hidden, 8 layers):**
-- Training time: ~15-30 minutes on CPU
-- Parameters: ~5-8M
-- Expected accuracy: 40-50% (character-level prediction)
+**December 11, 2025:**
+- Fixed GatedSSM A matrix initialization (now near-identity with decay)
+- Added attention-based salience pooling as alternative to mean pooling
+- Created `rsm_evaluation.py` with all evaluation functions
+- Created `run_evaluation.ipynb` for clean evaluation experiments
+- Updated `create_rsm_model()` to support `use_attention_pooling` parameter
+
+## References
+
+- **TinyStories:** Eldan & Li (2023) - https://arxiv.org/abs/2305.07759
+- **WikiText-103:** Merity et al. (2016) - https://arxiv.org/abs/1609.07843
+- **Tiny Shakespeare:** Karpathy's char-rnn - https://github.com/karpathy/char-rnn
+
+---
+
+**Course**: Deep Learning (Fall 2025)  
+**Authors**: Daria Strait, Peter Vail Driscoll  
+**Repo**: [github.com/DariaZS/hybrid-transformer-rsm](https://github.com/DariaZS/hybrid-transformer-rsm)
 
 **TinyStories (10 epochs, 256 hidden, 8 layers):**
 - Training time: ~1-2 hours on CPU
 - Parameters: ~13-15M (larger vocab)
 - Expected accuracy: 50-60% (BPE token prediction)
 
+## Citation
+
+```bibtex
+@misc{rsm2025,
+  title={Rolling State Memory Transformer Implementation},
+  author={Daria Strait, Peter Vail Driscoll},
+  year={2025},
+  note={Neural Network Deep Learning Course Project}
+}
+```
 
 ## References
 

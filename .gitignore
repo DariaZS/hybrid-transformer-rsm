@@ -1,24 +1,47 @@
 # Python
 __pycache__/
 *.py[cod]
-*.class
+*$py.class
 *.so
 .Python
-.venv/
-venv/
+*.egg-info/
+dist/
+build/
+
 # Jupyter
-.ipynb_checkpoints/
-*.ipynb_checkpoints
+.ipynb_checkpoints
+*-checkpoint.ipynb
+
+# Old/experimental files - not for GitHub
+hw2_code_ds4286.ipynb
+test.ipynb
+test1.ipynb
+rsm.ipynb
+hybrid_transformer.py
+
+# Checkpoints (too large)
+*.pt
+*.pth
+checkpoint_*.pt
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
 
 # IDE
 .vscode/
 .idea/
-# Data and models (you probably don't want to commit large files)
-*.pth
-*.pkl
-data/
-checkpoints/
+*.swp
+*.swo
 
-# OS
-.DS_Store
-Notes.pages
+# Data files (can be large)
+data/
+datasets/
+
+# But keep important files
+!requirements.txt
+
+# Temporary files
+*.log
+*.tmp
